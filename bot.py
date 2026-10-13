@@ -10,14 +10,13 @@ import telebot
 from telebot import apihelper
 
 # ============================================================================
-# 1. TURBO IPv4 FORCE (Eliminates IPv6 timeout & makes uploads ultra-fast)
+# 1. TURBO IPv4 FORCE (Fast Uploads & Persistent Keep-Alive)
 # ============================================================================
 def allowed_gai_family():
     return socket.AF_INET
 
 urllib3_cn.allowed_gai_family = allowed_gai_family
 
-# Persistent Keep-Alive Session for Telegram API
 session = requests.Session()
 adapter = requests.adapters.HTTPAdapter(pool_connections=32, pool_maxsize=64, max_retries=2)
 session.mount("https://", adapter)
@@ -25,7 +24,7 @@ session.mount("http://", adapter)
 apihelper.SESSION_TIME_TO_LIVE = None
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8726477301:AAGZjQ9V4T_oeA04RDTrnuVuqmuvaG1b09E").strip()
-MAX_RUNTIME_SECONDS = int(os.environ.get("MAX_RUNTIME_SECONDS", str(5 * 3600 + 20 * 60)))  # 5h 20m auto-exit for GitHub Actions
+MAX_RUNTIME_SECONDS = int(os.environ.get("MAX_RUNTIME_SECONDS", str(5 * 3600 + 25 * 60)))  # 5h 25m auto-restart
 
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=8)
 
@@ -34,26 +33,25 @@ bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=8)
 # ============================================================================
 EMOJI_PATTERN = re.compile(
     "["
-    "\\U0001F300-\\U0001F9FF"
-    "\\U0001FA00-\\U0001FAFF"
-    "\\U00002600-\\U000027BF"
-    "\\U0001F100-\\U0001F1FF"
-    "\\U00013000-\\U0001342F"
-    "\\U00012000-\\U0001254F"
-    "\\uFE0F\\u200D"
+    "\U0001F300-\U0001F9FF"
+    "\U0001FA00-\U0001FAFF"
+    "\U00002600-\U000027BF"
+    "\U0001F100-\U0001F1FF"
+    "\U00013000-\U0001342F"
+    "\U00012000-\U0001254F"
+    "\uFE0F\u200D"
     "]+",
     flags=re.UNICODE,
 )
 
 WATERMARK_KEYWORDS = [
     "Powered by", "Extracted by", "Downloaded by", "Uploaded by",
-    "Provided by", "Leaked by", "MadXABhi", "Mad X Abhi", "AS MULTIVERSE",
-    "𓊈", "𓊉", "𒆜", "🄼🄰🄳", "🄰🄱🄷🄸", "🚩"
+    "Provided by", "Leaked by", "MadXABhi", "Mad X Abhi",
+    "AS MULTIVERSE", "𓊈", "𓊉", "𒆜", "🄼🄰🄳", "🄰🄱🄷🄸", "🚩"
 ]
-
 FILENAME_BLOCKED_TOKENS = [
-    "_MadXABhi", "-MadXABhi", "MadXABhi", "MadXAbhi", "MAD_X_ABHI",
-    "AS_MULTIVERSE", "AS MULTIVERSE"
+    "_MadXABhi", "-MadXABhi", "MadXABhi", "MadXAbhi",
+    "MAD_X_ABHI", "AS_MULTIVERSE", "AS MULTIVERSE"
 ]
 
 RENAMED_FILE_CACHE = {}
@@ -106,21 +104,16 @@ def clean_title_value(raw_title: str) -> str:
             text = re.sub(r"[\s_\-|]*" + re.escape(tok.strip()), "", text, flags=re.IGNORECASE)
     text = re.sub(r"[\s_\-|]*mad\s*x?\s*abhi", "", text, flags=re.IGNORECASE)
     text = re.sub(
-        r"(?:\s*[-|–—_]\s*)?(?:\\b(?:144|240|360|480|720|1080|1440|2160)p\\b)?\s*\.(?:mp4|mkv|avi|mov|webm|flv|m4v|pdf|zip|rar)\b",
+        r"(?:\s*[-|–—_]\s*)?(?:\b(?:144|240|360|480|720|1080|1440|2160)p\b)?\s*\.(?:mp4|mkv|avi|mov|webm|flv|m4v|pdf|zip|rar)\b",
         "",
         text,
         flags=re.IGNORECASE,
     )
-    text = re.sub(
-        r"(?:\s*[-|–—_]\s*|\s+)\b(?:144|240|360|480|720|1080|1440|2160)p\b\s*$",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    )
+    text = re.sub(r"(?:\s*[-|–—_]\s*|\s+)\b(?:144|240|360|480|720|1080|1440|2160)p\b\s*$", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\.(?:mp4|mkv|avi|mov|webm|pdf)\b", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\b(and|or|the|of|in|to|for|with|by)\s+\1\b", r"\1", text, flags=re.IGNORECASE)
     text = re.sub(r"\band\b", "&", text, flags=re.IGNORECASE)
-    text = re.sub(r"[\s\-–—_]+$", "", re.sub(r"[_\s]{2,}", " ", text)).strip()
+    text = re.sub(r"[\s\-|–—_]+$", "", re.sub(r"[_\s]{2,}", " ", text)).strip()
     return smart_title_case(text)
 
 def clean_pdf_filename(raw_name: str, fallback_title: str = "") -> tuple[str, bool]:
@@ -169,7 +162,7 @@ def is_watermark_line(line: str) -> bool:
 
 def format_caption(raw_text: str, fallback_filename: str = "") -> tuple[str, str]:
     lines = (raw_text or "").replace("\r\n", "\n").split("\n")
-    title, subject, topic, others = "", "", "", []
+    title, subject, others = "", "", []
 
     for raw_line in lines:
         s = raw_line.strip()
@@ -187,9 +180,8 @@ def format_caption(raw_text: str, fallback_filename: str = "") -> tuple[str, str
             subject = re.sub(r"\s{2,}", " ", normalize_styled_unicode(strip_emojis(sm.group(1)))).strip()
             continue
 
-        topm = re.match(r"^\\W*Topic\\s*:\\s*(.*)$", ascii_line, re.IGNORECASE)
-        if topm:
-            topic = re.sub(r"\s{2,}", " ", normalize_styled_unicode(strip_emojis(topm.group(1)))).strip()
+        # Topic line completely removed
+        if re.match(r"^\W*Topic\s*:\s*(.*)$", ascii_line, re.IGNORECASE):
             continue
 
         if re.match(r"^\W*(?:quality|resolution|video\s*quality)\s*[:\-]", ascii_line, re.IGNORECASE):
@@ -210,14 +202,45 @@ def format_caption(raw_text: str, fallback_filename: str = "") -> tuple[str, str
         parts.append(f"🔖 {to_sans_bold('Title:')} {to_sans_bold(title)}")
     if subject:
         parts.append(f"📚 {to_sans_bold('Subject:')} {subject}")
-    if topic:
-        parts.append(f"📌 {to_sans_bold('Topic:')} {topic}")
     for o in others:
         parts.append(o)
 
     return "\n\n".join(parts), title
 
-def send_renamed_pdf_fast(chat_id, file_id, file_unique_id, clean_name, caption):
+def render_progress_text(fname: str, stage: str, cur: int, total: int) -> str:
+    pct = int(cur * 100 / total) if total > 0 else 0
+    pct = min(100, max(0, pct))
+    filled = min(10, int(pct / 10))
+    bar = "█" * filled + "░" * (10 - filled)
+    cur_mb = cur / (1024 * 1024)
+    tot_mb = total / (1024 * 1024)
+    arrow = "⬇️ Downloading" if stage == "download" else "⬆️ Uploading"
+    return f"⚡ {fname}\n{arrow}: [{bar}] {pct}% ({cur_mb:.1f}/{tot_mb:.1f} MB)"
+
+class ProgressUploadReader:
+    def __init__(self, bio: io.BytesIO, total_size: int, on_progress):
+        self._bio = bio
+        self._total = max(1, total_size)
+        self._on_progress = on_progress
+        self._sent = 0
+
+    def read(self, size=-1):
+        chunk = self._bio.read(size)
+        if chunk:
+            self._sent += len(chunk)
+            self._on_progress("upload", self._sent, self._total)
+        return chunk
+
+    def seek(self, offset, whence=0):
+        return self._bio.seek(offset, whence)
+
+    def tell(self):
+        return self._bio.tell()
+
+    def __len__(self):
+        return self._total
+
+def send_renamed_pdf_fast(chat_id, file_id, file_unique_id, clean_name, caption, file_size=0):
     cache_key = f"{file_unique_id}::{clean_name}" if file_unique_id else None
     if cache_key and cache_key in RENAMED_FILE_CACHE:
         try:
@@ -226,17 +249,90 @@ def send_renamed_pdf_fast(chat_id, file_id, file_unique_id, clean_name, caption)
         except Exception:
             RENAMED_FILE_CACHE.pop(cache_key, None)
 
-    file_info = bot.get_file(file_id)
-    dl_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
-    resp = session.get(dl_url, timeout=15)
-    resp.raise_for_status()
+    # 1. Start live progress bar
+    status_msg = None
+    try:
+        status_msg = bot.send_message(
+            chat_id,
+            render_progress_text(clean_name, "download", 0, file_size or 1)
+        )
+    except Exception:
+        pass
 
-    bio = io.BytesIO(resp.content)
-    bio.name = clean_name
-    sent = bot.send_document(chat_id, bio, caption=caption, visible_file_name=clean_name)
-    if sent and getattr(sent, "document", None) and cache_key:
-        RENAMED_FILE_CACHE[cache_key] = sent.document.file_id
-    return True
+    last_edit = [time.time(), -1]
+
+    def update_progress(stage, cur, total, force=False):
+        if not status_msg:
+            return
+        now = time.time()
+        pct = int(cur * 100 / total) if total > 0 else 0
+        if not force:
+            if now - last_edit[0] < 1.2:
+                return
+            if abs(pct - last_edit[1]) < 4 and pct < 99:
+                return
+        last_edit[0] = now
+        last_edit[1] = pct
+        try:
+            bot.edit_message_text(
+                render_progress_text(clean_name, stage, cur, total),
+                chat_id=chat_id,
+                message_id=status_msg.message_id
+            )
+        except Exception:
+            pass
+
+    try:
+        # 2. Get file url
+        file_info = bot.get_file(file_id)
+        dl_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+        bio = io.BytesIO()
+
+        # 3. Download with real-time progress bar
+        with session.get(dl_url, stream=True, timeout=30) as resp:
+            resp.raise_for_status()
+            total_size = int(resp.headers.get("content-length") or file_size or 0)
+            downloaded = 0
+            for chunk in resp.iter_content(chunk_size=65536):
+                if chunk:
+                    bio.write(chunk)
+                    downloaded += len(chunk)
+                    update_progress("download", downloaded, total_size)
+
+        total_downloaded = bio.tell()
+        bio.seek(0)
+        bio.name = clean_name
+
+        # 4. Upload with real-time progress bar
+        update_progress("upload", 0, total_downloaded, force=True)
+        reader = ProgressUploadReader(bio, total_downloaded, update_progress)
+        reader.name = clean_name
+
+        sent = bot.send_document(
+            chat_id,
+            reader,
+            caption=caption,
+            visible_file_name=clean_name,
+            timeout=35
+        )
+
+        if sent and getattr(sent, "document", None) and cache_key:
+            RENAMED_FILE_CACHE[cache_key] = sent.document.file_id
+
+        # 5. Cleanly delete progress message once delivered
+        if status_msg:
+            try:
+                bot.delete_message(chat_id, status_msg.message_id)
+            except Exception:
+                pass
+        return True
+    except Exception as e:
+        if status_msg:
+            try:
+                bot.edit_message_text(f"❌ Error: {e}", chat_id=chat_id, message_id=status_msg.message_id)
+            except Exception:
+                pass
+        raise
 
 # ============================================================================
 # 3. BOT HANDLERS
@@ -261,7 +357,7 @@ def handle_name_cmd(message):
 
     final_name = arg if re.search(r"\.[a-z0-9]{2,5}$", arg, re.IGNORECASE) else f"{arg}{last_doc['ext']}"
     last_doc["awaiting"] = False
-    send_renamed_pdf_fast(chat_id, last_doc["file_id"], last_doc["unique_id"], final_name, last_doc["caption"])
+    send_renamed_pdf_fast(chat_id, last_doc["file_id"], last_doc["unique_id"], final_name, last_doc["caption"], last_doc.get("size", 0))
 
 @bot.message_handler(content_types=["video", "document", "photo", "animation", "audio"])
 def handle_media(message):
@@ -271,6 +367,71 @@ def handle_media(message):
     fname = doc.file_name if doc else (vid.file_name if vid else "")
     raw_caption = message.caption or (f"Title: {fname}" if fname else "")
     cleaned_caption, extracted_title = format_caption(raw_caption, fname or "")
+
+    if doc:
+        ext_m = re.search(r"(\.[a-zA-Z0-9]{2,5})$", fname or "")
+        LAST_DOC_BY_CHAT[chat_id] = {
+            "file_id": doc.file_id,
+            "unique_id": getattr(doc, "file_unique_id", ""),
+            "size": getattr(doc, "file_size", 0) or 0,
+            "ext": ext_m.group(1) if ext_m else ".pdf",
+            "caption": cleaned_caption,
+            "awaiting": False,
+        }
+        clean_name, was_modified = clean_pdf_filename(fname or "", extracted_title)
+        if was_modified and (not doc.file_size or doc.file_size <= 20 * 1024 * 1024):
+            try:
+                send_renamed_pdf_fast(chat_id, doc.file_id, getattr(doc, "file_unique_id", ""), clean_name, cleaned_caption, doc.file_size or 0)
+                return
+            except Exception as e:
+                print("PDF rename fallback to copy_message:", e)
+
+    bot.copy_message(
+        chat_id=chat_id,
+        from_chat_id=chat_id,
+        message_id=message.message_id,
+        caption=cleaned_caption,
+    )
+
+@bot.message_handler(content_types=["text"])
+def handle_text(message):
+    chat_id = message.chat.id
+    txt = (message.text or "").strip()
+    if not txt or txt.startswith("/"):
+        return
+
+    last_doc = LAST_DOC_BY_CHAT.get(chat_id)
+    if last_doc and last_doc.get("awaiting"):
+        last_doc["awaiting"] = False
+        final_name = txt if re.search(r"\.[a-z0-9]{2,5}$", txt, re.IGNORECASE) else f"{txt}{last_doc['ext']}"
+        send_renamed_pdf_fast(chat_id, last_doc["file_id"], last_doc["unique_id"], final_name, last_doc["caption"], last_doc.get("size", 0))
+        return
+
+    cleaned_caption, _ = format_caption(txt)
+    if cleaned_caption:
+        bot.send_message(chat_id, cleaned_caption)
+
+# ============================================================================
+# 4. 5-HOUR AUTO-RESTART TIMER FOR 24/7 GITHUB ACTIONS
+# ============================================================================
+def auto_shutdown_timer():
+    time.sleep(MAX_RUNTIME_SECONDS)
+    print(f"Reached {MAX_RUNTIME_SECONDS}s limit. Restarting cleanly...")
+    bot.stop_polling()
+    os._exit(0)
+
+if __name__ == "__main__":
+    try:
+        session.post(f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook", json={"url": "https://example.com/reset"}, timeout=5)
+        session.post(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook", json={"drop_pending_updates": False}, timeout=5)
+    except Exception:
+        pass
+
+    t = threading.Thread(target=auto_shutdown_timer, daemon=True)
+    t.start()
+
+    print("⚡ TeleClean Turbo Bot active (24/7 GitHub Runner Mode)...")
+    bot.infinity_polling(timeout=20, long_polling_timeout=20, skip_pending=False)e = format_caption(raw_caption, fname or "")
 
     if doc:
         ext_m = re.search(r"(\.[a-zA-Z0-9]{2,5})$", fname or "")
